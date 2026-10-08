@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# LED Controller
+settings.json
+legacy/
+effects_scan.json
+opcodes_scan.json
+*.log
+.idea/
+spectrum_test.json
+!packaging/led-controller.spec
