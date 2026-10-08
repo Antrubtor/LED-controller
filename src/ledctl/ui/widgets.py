@@ -557,3 +557,63 @@ class SpectrumView(QWidget):
         p.setBrush(c)
         p.setPen(QPen(QColor(255, 255, 255, 30), 1))
         p.drawRoundedRect(strip, 7, 7)
+
+
+class ScreenPreview(QWidget):
+    """What the screen ambiance sees (subsampled screen) and the color it sends to the strip."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._image: QImage | None = None
+        self._color = QColor(0, 0, 0)
+        self._level = 0.0
+        self.setMinimumHeight(220)
+
+    def push(self, thumb: np.ndarray, rgb, level: float) -> None:
+        h, w = thumb.shape[:2]
+        data = np.ascontiguousarray(thumb)
+        self._image = QImage(data.data, w, h, 3 * w, QImage.Format_RGB888).copy()
+        self._color = QColor(*rgb)
+        self._level = level
+        self.update()
+
+    def clear(self) -> None:
+        self._image = None
+        self._level = 0.0
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        r = QRectF(self.rect())
+        strip = QRectF(r.left(), r.bottom() - 22, r.width(), 14)
+        area = QRectF(r.left(), r.top(), r.width(), strip.top() - r.top() - 18)
+
+        frame = QPainterPath()
+        if self._image is not None:
+            iw, ih = self._image.width(), self._image.height()
+            scale = min(area.width() / iw, area.height() / ih)
+            target = QRectF(0, 0, iw * scale, ih * scale)
+            target.moveCenter(area.center())
+            frame.addRoundedRect(target, 8, 8)
+            p.setClipPath(frame)
+            p.drawImage(target, self._image)
+            p.setClipping(False)
+        else:
+            frame.addRoundedRect(area, 8, 8)
+            p.fillPath(frame, QColor(theme.SURFACE_2))
+            p.setPen(QColor(theme.MUTED))
+            p.drawText(area, Qt.AlignCenter, "Screen preview")
+
+        c = QColor(self._color)
+        lv = self._level
+        c.setRgbF(c.redF() * lv, c.greenF() * lv, c.blueF() * lv)
+        glow = QColor(c)
+        glow.setAlpha(int(110 * lv))
+        p.setPen(Qt.NoPen)
+        p.setBrush(glow)
+        p.drawRoundedRect(strip.adjusted(-4, -6, 4, 6), 12, 12)
+        p.setBrush(c)
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1))
+        p.drawRoundedRect(strip, 7, 7)

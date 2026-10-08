@@ -26,6 +26,7 @@ ICONS = {
     "effects": "",
     "music": "",
     "settings": "",
+    "screen": "",
     "power": "",
     "brightness": "",
     "refresh": "",

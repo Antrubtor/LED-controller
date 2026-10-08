@@ -25,6 +25,8 @@ by the *BanlanX* mobile app) from your PC: solid colors, the 142 built-in effect
   - Each effect shows the settings it supports, like in the app: sensitivity (1–16), effect length, color.
   - **Strip modes**: 10 extra modes computed on the PC (Spectrum, Pulse, Beat Flash, Dancing Rainbow, Bass,
     VU Meter, Fire, Strobe…), with sensitivity, smoothing and frame rate.
+- **Screen ambiance** — the strip takes the dominant color of your screen (whole screen or edges only, like an
+  Ambilight), with color boost, smoothing and minimum brightness: great for movies and games.
 - **Power and brightness** always at hand in the sidebar.
 - **Settings** — RGB wiring order, Bluetooth write rate, and a protocol console to send raw bytes.
 
@@ -35,6 +37,8 @@ by the *BanlanX* mobile app) from your PC: solid colors, the 142 built-in effect
 | ![Devices](docs/screenshots/devices.png) | ![Color](docs/screenshots/color.png) |
 | **Effects** | **Strip modes** |
 | ![Effects](docs/screenshots/effects.png) | ![Strip modes](docs/screenshots/strip-modes.png) |
+| **Screen ambiance** | **Settings** |
+| ![Screen ambiance](docs/screenshots/screen.png) | ![Settings](docs/screenshots/settings.png) |
 
 ## Download
 
@@ -49,6 +53,9 @@ Ready-to-run builds are attached to each [release](../../releases/latest):
 The PC audio features (PC sound and PC microphone as music source) currently work on **Windows only**: they
 use WASAPI. On macOS and Linux everything else works, including the music effects that listen to the
 controller's microphone.
+
+The screen ambiance works on Windows, macOS (grant *Screen Recording* permission) and Linux under X11
+(Wayland sessions are not supported by the capture library).
 
 ## Run from source
 
@@ -110,6 +117,14 @@ The app therefore sends through a **coalescing queue** (a pending music frame or
 the newest one), paces writes at ~20/s, leaves 120 ms after one-off commands, and reads the state back after an
 effect or audio input change to resend anything the controller ignored.
 
+### Screen ambiance
+
+The screen is captured with DXGI Desktop Duplication on Windows ([dxcam](https://github.com/ra1nty/DXcam): the
+image is read from the GPU and nothing is copied while the screen does not change, about 1 ms of CPU per frame)
+and [mss](https://github.com/BoboTiG/python-mss) elsewhere. The image is subsampled to ~96 columns; near-black
+pixels are ignored and bright, saturated pixels weigh more, so a colorful scene gives a vivid color instead of
+a dull average. The result is smoothed and streamed like the music frames.
+
 ### Audio
 
 Capture uses WASAPI (loopback for the PC sound) with a callback and a ring buffer, so the analysis always runs on
@@ -168,6 +183,7 @@ src/ledctl/
   ble/        bleak asyncio loop: scanning, connection, coalescing write queue
   audio/      WASAPI capture, FFT and beat analysis, visualizers, real-time engine
   ui/         PySide6 interface (theme, widgets, pages)
+  screen.py   screen capture and dominant color for the screen ambiance
   session.py  application logic: turns UI actions into controller commands
 tools/        BLE probe / brute-forcer, btsnoop decoder, screenshot generator
 ```
@@ -179,4 +195,5 @@ Settings are stored in `%APPDATA%\LED-Controller\settings.json` (`~/.config/LED-
 - [UniLED](https://github.com/monty68/uniled) by monty68 — the BanlanX protocol and effect lists this project
   builds on.
 - [bleak](https://github.com/hbldh/bleak), [PySide6](https://doc.qt.io/qtforpython-6/),
-  [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch) and [NumPy](https://numpy.org/).
+  [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch), [DXcam](https://github.com/ra1nty/DXcam),
+  [mss](https://github.com/BoboTiG/python-mss) and [NumPy](https://numpy.org/).

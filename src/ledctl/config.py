@@ -42,6 +42,13 @@ class Config:
     music_animated_effect: int = 0x01
     music_native_effect: int = 0xC9  # Full Color Rhythm Spectrum
 
+    screen_monitor: int = 0
+    screen_area: str = "full"  # "full" or "edges"
+    screen_boost: float = 1.3
+    screen_smoothing: float = 0.3
+    screen_floor: float = 0.05
+    screen_fps: int = 15
+
     def save(self) -> None:
         try:
             CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

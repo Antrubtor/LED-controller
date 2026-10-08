@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import screen
 from ..audio import capture
 from ..audio.visualizers import VISUALIZERS
 from ..ble.controller import Discovered
@@ -33,6 +34,7 @@ from . import theme
 from .widgets import (
     ColorPreview,
     ColorWheel,
+    ScreenPreview,
     EffectCard,
     FlowLayout,
     Segmented,
@@ -995,6 +997,135 @@ class MusicPage(Page):
             self.fx_length.set_value(st.length)
         if st.rgb:
             self.fx_color.set_color(st.rgb)
+
+
+# ============================================================================ Screen
+class ScreenPage(Page):
+    AREAS = [("full", "Whole screen"), ("edges", "Edges only (like an Ambilight)")]
+
+    def __init__(self, session: Session):
+        super().__init__("Screen", "Your LEDs take the dominant color of your screen: an ambiance light for movies, "
+                                   "games and wallpapers. One color for the whole strip.")
+        self.session = session
+        cfg = session.config
+        engine = session.screen
+
+        top = QHBoxLayout()
+        top.setSpacing(18)
+
+        live = QVBoxLayout()
+        head = QHBoxLayout()
+        self.live_title = label("Stopped", "sectionTitle")
+        head.addWidget(self.live_title)
+        head.addStretch()
+        live.addLayout(head)
+        self.preview = ScreenPreview()
+        live.addWidget(self.preview)
+        self.btn_start = icon_button("play", "Start", "primary")
+        self.btn_start.setMinimumHeight(44)
+        live.addWidget(self.btn_start)
+        live.addWidget(label("Screen", None))
+        self.monitor_combo = QComboBox()
+        live.addWidget(self.monitor_combo)
+        top.addWidget(card(live), 3)
+
+        opts = QVBoxLayout()
+        opts.addWidget(label("Settings", "sectionTitle"))
+        opts.addWidget(label("Area", None))
+        self.area_combo = QComboBox()
+        for key, text in self.AREAS:
+            self.area_combo.addItem(text, key)
+        self.area_combo.setCurrentIndex(max(0, self.area_combo.findData(cfg.screen_area)))
+        opts.addWidget(self.area_combo)
+        self.boost = SliderRow("Color boost", 0, 100, round((cfg.screen_boost - 1) * 100), lambda v: f"{v} %")
+        self.smooth = SliderRow("Smoothing", 0, 100, round(cfg.screen_smoothing * 100), lambda v: f"{v * 10} ms")
+        self.floor = SliderRow("Minimum brightness", 0, 40, round(cfg.screen_floor * 100), lambda v: f"{v} %")
+        self.fps = SliderRow("Frames per second", 5, 30, cfg.screen_fps, lambda v: f"{v} fps")
+        for w in (self.boost, self.smooth, self.floor, self.fps):
+            opts.addWidget(w)
+        opts.addWidget(label("Protected videos (some streaming sites) and exclusive fullscreen games may be captured "
+                             "as black: use borderless window mode in games.", "small", wrap=True))
+        opts.addStretch()
+        top.addWidget(card(opts), 2)
+        self.body_layout.addLayout(top)
+
+        # initial engine state
+        engine.params.area = cfg.screen_area
+        engine.params.boost = cfg.screen_boost
+        engine.params.smoothing = cfg.screen_smoothing
+        engine.params.floor = cfg.screen_floor
+        engine.fps = cfg.screen_fps
+        self._populate_monitors()
+
+        self.btn_start.clicked.connect(self._toggle)
+        self.monitor_combo.currentIndexChanged.connect(self._set_monitor)
+        self.area_combo.currentIndexChanged.connect(
+            lambda _: self._set("area", self.area_combo.currentData(), "screen_area"))
+        self.boost.changed.connect(lambda v: self._set("boost", 1 + v / 100, "screen_boost"))
+        self.smooth.changed.connect(lambda v: self._set("smoothing", v / 100, "screen_smoothing"))
+        self.floor.changed.connect(lambda v: self._set("floor", v / 100, "screen_floor"))
+        self.fps.changed.connect(self._set_fps)
+        engine.running_changed.connect(self._on_running)
+        engine.frame.connect(self._on_frame)
+
+    def _populate_monitors(self) -> None:
+        self.monitor_combo.blockSignals(True)
+        self.monitor_combo.clear()
+        try:
+            monitors = screen.list_monitors()
+        except Exception:  # noqa: BLE001
+            monitors = []
+        for m in monitors:
+            self.monitor_combo.addItem(m.label, m.index)
+        idx = self.monitor_combo.findData(self.session.config.screen_monitor)
+        self.monitor_combo.setCurrentIndex(max(0, idx))
+        if self.monitor_combo.count():
+            self.session.screen.monitor = self.monitor_combo.currentData()
+        self.monitor_combo.blockSignals(False)
+
+    def _set_monitor(self, _) -> None:
+        index = self.monitor_combo.currentData()
+        self.session.screen.monitor = index
+        self.session.config.screen_monitor = index
+        self._save_later()
+        if self.session.screen.running:  # restart on the new screen
+            self.session.screen.stop()
+            self.session.start_screen()
+
+    def _set(self, attr: str, value, cfg_key: str) -> None:
+        setattr(self.session.screen.params, attr, value)
+        setattr(self.session.config, cfg_key, value)
+        self._save_later()
+
+    def _set_fps(self, v: int) -> None:
+        self.session.screen.fps = v
+        self.session.config.screen_fps = v
+        self._save_later()
+
+    def _save_later(self):
+        if not hasattr(self, "_save_timer"):
+            self._save_timer = QTimer(self, singleShot=True, interval=800)
+            self._save_timer.timeout.connect(self.session.config.save)
+        self._save_timer.start()
+
+    def _toggle(self) -> None:
+        if self.session.screen.running:
+            self.session.stop_screen()
+        else:
+            self.session.start_screen()
+
+    def _on_running(self, running: bool) -> None:
+        self.btn_start.setObjectName("danger" if running else "primary")
+        set_icon_button(self.btn_start, "stop" if running else "play", "Stop" if running else "Start")
+        self.btn_start.style().unpolish(self.btn_start)
+        self.btn_start.style().polish(self.btn_start)
+        self.live_title.setText("Live" if running else "Stopped")
+        self.live_title.setStyleSheet(f"color: {theme.SUCCESS};" if running else "")
+        if not running:
+            self.preview.clear()
+
+    def _on_frame(self, thumb, rgb, level) -> None:
+        self.preview.push(thumb, rgb, level)
 
 
 # ============================================================================ Settings

@@ -11,6 +11,7 @@ from .audio.visualizers import create as create_visualizer
 from .ble.controller import BleController
 from .config import Config
 from .protocol import DeviceState, Protocol
+from .screen import ScreenEngine
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class Session(QObject):
         super().__init__()
         self.ble = ble
         self.engine = engine
+        self.screen = ScreenEngine(ble.send)
         self.config = config
         self.protocol: Protocol | None = None
         self.state = DeviceState(brightness=config.brightness, rgb=config.color)
@@ -36,6 +38,11 @@ class Session(QObject):
         ble.link_changed.connect(self._on_link)
         ble.state_received.connect(self._on_state)
         engine.error.connect(self._on_engine_error)
+        self.screen.error.connect(self._on_screen_error)
+
+    def _on_screen_error(self, _message: str) -> None:
+        if not self.screen.running:
+            self.ble.drop("screen")
 
     def _on_engine_error(self, _message: str) -> None:
         # The audio source could not be opened (or failed): give the controller its microphone back,
@@ -49,6 +56,7 @@ class Session(QObject):
     def _on_connected(self, protocol: Protocol, address: str) -> None:
         self.protocol = protocol
         self.engine.protocol = protocol
+        self.screen.protocol = protocol
         self.config.last_address = address
         self.config.last_model = protocol.model.name
         self.config.save()
@@ -57,6 +65,8 @@ class Session(QObject):
     def _on_link(self, link: str, _msg: str) -> None:
         if link in ("disconnected", "reconnecting") and self.protocol is not None:
             self.engine.stop()
+            self.screen.stop()
+            self.screen.protocol = None
             self.protocol = None
             self.engine.protocol = None
             self._expect.clear()
@@ -95,8 +105,8 @@ class Session(QObject):
     def _on_state(self, st: DeviceState) -> None:
         if self._expect:
             self._check_expectations(st)
-        # While the PC music mode runs, the reported brightness/color/speed belong to the animation: ignore them.
-        if self.engine.running:
+        # While a PC stream runs, the reported brightness/color/speed belong to the animation: ignore them.
+        if self.engine.running or self.screen.running:
             st = st.copy(brightness=self.state.brightness, rgb=self.state.rgb, speed=self.state.speed)
         self.state = st
         self.state_changed.emit(st)
@@ -111,6 +121,12 @@ class Session(QObject):
         return self.protocol is not None
 
     def _stop_music(self) -> None:
+        """Stops whatever the PC streams to the controller (music or screen ambiance)."""
+        if self.screen.running:
+            self.screen.stop()
+            self.ble.drop("screen")
+            if self.protocol and self.state.brightness is not None:
+                self.ble.send(self.protocol.cmd_brightness(self.state.brightness))
         if self.engine.running:
             self.engine.stop()
             self.ble.drop("music")
@@ -142,8 +158,9 @@ class Session(QObject):
     def set_brightness(self, level: int) -> None:
         self.config.brightness = level
         self.engine.master_brightness = level
+        self.screen.master_brightness = level
         self._update(brightness=level)
-        if self.protocol and not self.engine.running:
+        if self.protocol and not self.engine.running and not self.screen.running:
             self.ble.send(self.protocol.cmd_brightness(level), key="brightness")
 
     def set_color(self, rgb: tuple[int, int, int], live: bool = True) -> None:
@@ -222,9 +239,35 @@ class Session(QObject):
         self.ble.query_state()
 
     # ------------------------------------------------------------------ PC music
+    # ------------------------------------------------------------------ screen ambiance
+    def start_screen(self) -> None:
+        if not self.protocol:
+            return
+        self._stop_music()
+        p = self.protocol
+        self._ensure_on()
+        if self.state.light_mode not in (None, 0):
+            self.ble.send(p.cmd_light_mode(0))
+        if self.state.effect != p.effect_solid:
+            self._send_effect(p.effect_solid)
+        self.state = self.state.copy(effect=p.effect_solid, light_mode=0)
+        self.screen.master_brightness = self.state.brightness or 255
+        self.screen.start()
+        self._update(power=True)
+
+    def stop_screen(self) -> None:
+        if not self.screen.running:
+            return
+        self._stop_music()
+        if self.protocol:
+            rgb = self.state.rgb or (255, 255, 255)
+            self.ble.send(self.protocol.cmd_color(*rgb, self.state.brightness or 255))
+
     def start_pc_music(self) -> None:
         if not self.protocol:
             return
+        if self.screen.running:
+            self.stop_screen()
         p = self.protocol
         vis = self.engine.visualizer
         if self.state.light_mode not in (None, 0):

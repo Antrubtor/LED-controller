@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from ..protocol import DeviceState, model_by_name
 from ..session import Session
 from . import theme
-from .pages import ColorPage, DevicePage, EffectsPage, MusicPage, SettingsPage
+from .pages import ColorPage, DevicePage, EffectsPage, MusicPage, ScreenPage, SettingsPage
 from .widgets import SliderRow, card, glyph_icon, icon_label, label
 
 NAV = [
@@ -26,6 +26,7 @@ NAV = [
     ("color", "Color"),
     ("effects", "Effects"),
     ("music", "Music"),
+    ("screen", "Screen"),
     ("settings", "Settings"),
 ]
 
@@ -80,7 +81,8 @@ class MainWindow(QMainWindow):
         h.addWidget(self.stack, 1)
 
         self.devices = DevicePage(session)
-        self.pages = [self.devices, ColorPage(session), EffectsPage(session), MusicPage(session), SettingsPage(session)]
+        self.pages = [self.devices, ColorPage(session), EffectsPage(session), MusicPage(session), ScreenPage(session),
+                      SettingsPage(session)]
         for page in self.pages:
             self.stack.addWidget(page)
             page.go_devices.connect(lambda: self._go(0))
@@ -225,6 +227,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self.session.engine.stop()
+        self.session.screen.stop()
         self.session.config.save()
         self.session.ble.shutdown()
         super().closeEvent(event)

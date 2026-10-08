@@ -21,8 +21,10 @@ hiddenimports = collect_submodules(
     "bleak", filter=lambda name: not any(f"bleak.backends.{b}" in name for b in OTHER_BACKENDS)
 )
 binaries = []
+hiddenimports += collect_submodules("mss")
 if sys.platform == "win32":
     hiddenimports += collect_submodules("winrt")
+    hiddenimports += collect_submodules("dxcam") + collect_submodules("comtypes")
     hiddenimports += ["pyaudiowpatch"]
     binaries += collect_dynamic_libs("pyaudiowpatch")
 

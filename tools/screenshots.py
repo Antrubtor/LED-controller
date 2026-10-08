@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from ledctl import screen  # noqa: E402
 from ledctl.audio import capture  # noqa: E402
 from ledctl.audio.engine import MusicEngine  # noqa: E402
 from ledctl.ble.controller import BleController, Discovered  # noqa: E402
@@ -31,6 +32,7 @@ OUT = Path(__file__).resolve().parents[1] / "docs" / "screenshots"
 FAKE_ADDRESS = "AA:BB:CC:DD:EE:FF"
 
 capture.list_devices = lambda: []  # do not show the PC's real audio devices
+screen.list_monitors = lambda: [screen.Monitor(0, "Screen 1 — 2560×1440 (primary)")]  # nor its real screens
 
 
 def main() -> None:
@@ -84,6 +86,14 @@ def main() -> None:
         music.strip_spectrum.push(bands * 0.9, (255, 60, 40), 0.85, False)
         shoot("strip-modes")
         window._go(4)
+        # A synthetic "sunset" picture, never the real screen (it could show personal content).
+        y, x = np.mgrid[0:27, 0:96]
+        y, x = y / 26.0, x / 95.0
+        thumb = np.stack([0.95 - 0.3 * y, 0.35 + 0.25 * x * (1 - y), 0.25 + 0.6 * y], axis=-1)
+        window.pages[4].preview.push((np.clip(thumb, 0, 1) * 255).astype(np.uint8), (255, 120, 60), 0.85)
+        window.pages[4]._on_running(True)
+        shoot("screen")
+        window._go(5)
         shoot("settings")
         app.quit()
 

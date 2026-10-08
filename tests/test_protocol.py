@@ -189,3 +189,29 @@ def test_low_sensitivity_keeps_the_strip_darker():
 
     low, mid, high = mean_level(1), mean_level(9), mean_level(16)
     assert low < 0.15 < mid < high
+
+
+def test_screen_dominant_color():
+    from ledctl.screen import dominant_color
+
+    red = np.zeros((54, 96, 3), np.float32)
+    red[:, :, 0] = 0.9
+    assert dominant_color(red) == ((255, 0, 0), 1.0)
+
+    dark = np.full((54, 96, 3), 0.03, np.float32)
+    assert dominant_color(dark)[1] == 0.0
+
+    film = np.zeros((54, 96, 3), np.float32)  # blue picture with black letterbox bars
+    film[10:44] = [0.1, 0.4, 0.8]
+    (r, g, b), level = dominant_color(film)
+    assert b == 255 and r < 40 and 0.3 < level < 0.9
+
+    small_accent = np.full((54, 96, 3), 0.5, np.float32)  # grey screen with an orange spot
+    small_accent[20:30, 40:60] = [1.0, 0.5, 0.0]
+    (r, g, b), _ = dominant_color(small_accent)
+    assert r == 255 and b < 30, "saturated pixels must win over a dull average"
+
+    edges = np.zeros((54, 96, 3), np.float32)
+    edges[:, :] = [0.0, 0.8, 0.0]  # green border…
+    edges[15:39, 20:76] = [0.8, 0.0, 0.0]  # …red center
+    assert dominant_color(edges, "edges")[0] == (0, 255, 0)
